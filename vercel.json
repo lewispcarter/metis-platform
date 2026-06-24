@@ -1,6 +1,5 @@
 {
   "framework": "nextjs",
   "installCommand": "pnpm install --frozen-lockfile=false",
-  "buildCommand": "pnpm --filter @metis/web build",
-  "outputDirectory": "apps/web/.next"
+  "buildCommand": "pnpm --filter @metis/web build"
 }
