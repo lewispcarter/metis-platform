@@ -1,0 +1,17 @@
+// @ts-nocheck
+/**
+ * READINESS MODULE
+ * Purpose: Groups production-readiness controller and service.
+ * Role: Keeps deployment validation isolated from domain modules.
+ */
+import { Module } from '@nestjs/common';
+import { PrismaModule } from '../prisma/prisma.module';
+import { ReadinessController } from './readiness.controller';
+import { ReadinessService } from './readiness.service';
+
+@Module({
+  imports: [PrismaModule],
+  controllers: [ReadinessController],
+  providers: [ReadinessService],
+})
+export class ReadinessModule {}

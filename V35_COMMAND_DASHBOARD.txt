@@ -1,0 +1,20 @@
+V35 COMMAND DASHBOARD
+
+Adds a client-side command dashboard that reads the same local persistent state used by Events, Event Detail, Personnel, and Activity.
+
+Included:
+- Dashboard metrics from localStorage events/personnel/activity.
+- Open Events, Assigned Events, Urgent/Critical, Available Personnel.
+- Active Workflows, Unassigned Open Events, Resolved Events, Audit Entries.
+- Live event feed linked to event details.
+- Personnel board with calculated assigned status from active event ownership.
+- Recent audit feed.
+- Command links for Create Event, Events, Personnel, and Activity.
+
+Test:
+1. Create an event.
+2. Go to Dashboard and verify Open Events increases.
+3. Acknowledge and assign owner.
+4. Go to Dashboard and verify Assigned Events and Available Personnel update.
+5. Resolve an event.
+6. Go to Dashboard and verify Resolved Events increases and Open Events decreases.

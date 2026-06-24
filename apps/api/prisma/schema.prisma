@@ -1,0 +1,463 @@
+/// PRISMA SCHEMA
+/// Purpose: Defines the initial PostgreSQL data model for the operational coordination platform.
+/// Role: Establishes tenant-scoped persistence foundations for events, workflows, personnel, communications, assignments, escalations, RBAC, and audits.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EventStatus {
+  CREATED
+  CLASSIFIED
+  QUEUED
+  WORKFLOW_STARTED
+  ASSIGNED
+  CONTACTING
+  ACKNOWLEDGED
+  IN_PROGRESS
+  ESCALATED
+  RESOLVED
+  CLOSED
+  ARCHIVED
+  FAILED
+  CANCELLED
+  REOPENED
+}
+
+enum EventPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+enum EventSeverity {
+  S1_CRITICAL
+  S2_HIGH
+  S3_MEDIUM
+  S4_LOW
+}
+
+enum AcknowledgmentStatus {
+  NOT_REQUIRED
+  PENDING
+  DELIVERED
+  VIEWED
+  ACKNOWLEDGED
+  ACCEPTED
+  REJECTED
+  TIMED_OUT
+  FAILED
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  DEACTIVATED
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users         User[]
+  memberships   OrganizationMembership[]
+  roles         Role[]
+  departments   Department[]
+  personnel     Personnel[]
+  events        OperationalEvent[]
+  workflows     WorkflowRun[]
+  communications Communication[]
+  assignments   Assignment[]
+  coverageRequests CoverageRequest[]
+  escalations   Escalation[]
+  audits        AuditEvent[]
+  acknowledgments Acknowledgment[]
+  inboundWebhookRoutes InboundWebhookRoute[]
+  providerConfigurations ProviderConfiguration[]
+
+  @@map("organization")
+}
+
+model Department {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users        User[]
+  personnel    Personnel[]
+  events       OperationalEvent[]
+
+  @@unique([organizationId, name], map: "uq_department_org_name")
+  @@index([organizationId], map: "idx_department_org")
+  @@map("department")
+}
+
+model Role {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  permissions    Json     @default("[]")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users        User[]
+
+  @@unique([organizationId, name], map: "uq_role_org_name")
+  @@index([organizationId], map: "idx_role_org")
+  @@map("role")
+}
+
+model User {
+  id             String     @id @default(uuid())
+  organizationId String     @map("organization_id")
+  departmentId   String?    @map("department_id")
+  roleId         String?    @map("role_id")
+  externalAuthId String?    @unique @map("external_auth_id")
+  email          String
+  displayName    String     @map("display_name")
+  status         UserStatus @default(INVITED)
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  role         Role?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  memberships  OrganizationMembership[]
+
+  @@unique([organizationId, email], map: "uq_user_org_email")
+  @@index([organizationId, status], map: "idx_user_org_status")
+  @@map("user")
+}
+
+model OrganizationMembership {
+  id             String     @id @default(uuid())
+  organizationId String     @map("organization_id")
+  userId         String     @map("user_id")
+  roleName       String     @map("role_name")
+  status         UserStatus @default(ACTIVE)
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId], map: "uq_org_membership_org_user")
+  @@index([organizationId, roleName], map: "idx_org_membership_org_role")
+  @@index([userId], map: "idx_org_membership_user")
+  @@map("organization_membership")
+}
+
+model Personnel {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  departmentId   String?  @map("department_id")
+  displayName    String   @map("display_name")
+  roleTitle      String   @map("role_title")
+  email          String?
+  phone          String?
+  certifications Json     @default("[]")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department   Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  availability AvailabilityWindow[]
+  assignments  Assignment[]
+  coverageRequests CoverageRequest[]
+  acknowledgments Acknowledgment[]
+
+  @@index([organizationId, roleTitle], map: "idx_personnel_org_role")
+  @@index([organizationId, departmentId], map: "idx_personnel_org_department")
+  @@map("personnel")
+}
+
+model AvailabilityWindow {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  personnelId    String   @map("personnel_id")
+  startsAt       DateTime @map("starts_at")
+  endsAt         DateTime @map("ends_at")
+  status         String
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  personnel Personnel @relation(fields: [personnelId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, personnelId], map: "idx_availability_org_personnel")
+  @@index([organizationId, startsAt, endsAt], map: "idx_availability_org_window")
+  @@map("availability_window")
+}
+
+model OperationalEvent {
+  id                   String               @id @default(uuid())
+  organizationId       String               @map("organization_id")
+  departmentId         String?              @map("department_id")
+  eventType            String               @map("event_type")
+  eventCategory        String               @map("event_category")
+  title                String
+  description          String?
+  source               String
+  status               EventStatus          @default(CREATED)
+  severity             EventSeverity
+  priority             EventPriority
+  escalationLevel      Int                  @default(0) @map("escalation_level")
+  acknowledgmentStatus AcknowledgmentStatus @default(PENDING) @map("acknowledgment_status")
+  metadata             Json                 @default("{}")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department     Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  workflowRuns   WorkflowRun[]
+  communications Communication[]
+  assignments    Assignment[]
+  coverageRequests CoverageRequest[]
+  escalations    Escalation[]
+  audits         AuditEvent[]
+  acknowledgments Acknowledgment[]
+
+  @@index([organizationId, status], map: "idx_operational_event_org_status")
+  @@index([organizationId, priority], map: "idx_operational_event_org_priority")
+  @@index([organizationId, severity], map: "idx_operational_event_org_severity")
+  @@map("operational_event")
+}
+
+model WorkflowDefinition {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  version        Int      @default(1)
+  definition     Json     @default("{}")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  runs WorkflowRun[]
+
+  @@unique([organizationId, name, version], map: "uq_workflow_definition_org_name_version")
+  @@index([organizationId, isActive], map: "idx_workflow_definition_org_active")
+  @@map("workflow_definition")
+}
+
+model WorkflowRun {
+  id                   String   @id @default(uuid())
+  organizationId       String   @map("organization_id")
+  operationalEventId   String   @map("operational_event_id")
+  workflowDefinitionId String?  @map("workflow_definition_id")
+  status               String
+  currentStep          String?  @map("current_step")
+  metadata             Json     @default("{}")
+  startedAt            DateTime @default(now()) @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationalEvent   OperationalEvent    @relation(fields: [operationalEventId], references: [id], onDelete: Cascade)
+  workflowDefinition WorkflowDefinition? @relation(fields: [workflowDefinitionId], references: [id], onDelete: SetNull)
+  tasks              WorkflowTask[]
+
+  @@index([organizationId, status], map: "idx_workflow_run_org_status")
+  @@index([operationalEventId], map: "idx_workflow_run_event")
+  @@map("workflow_run")
+}
+
+model WorkflowTask {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  workflowRunId  String   @map("workflow_run_id")
+  name           String
+  status         String
+  metadata       Json     @default("{}")
+  startedAt      DateTime? @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  failureReason  String?  @map("failure_reason")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, workflowRunId], map: "idx_workflow_task_org_run")
+  @@index([organizationId, status], map: "idx_workflow_task_org_status")
+  @@map("workflow_task")
+}
+
+model CoverageRequest {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  operationalEventId String   @map("operational_event_id")
+  personnelId        String?  @map("personnel_id")
+  requiredRole       String   @map("required_role")
+  requiredDepartment String?  @map("required_department")
+  requiredShiftStart DateTime @map("required_shift_start")
+  requiredShiftEnd   DateTime @map("required_shift_end")
+  requiredCertifications Json @default("[]") @map("required_certifications")
+  status             String
+  urgency            String
+  coverageDeadline   DateTime @map("coverage_deadline")
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationalEvent OperationalEvent @relation(fields: [operationalEventId], references: [id], onDelete: Cascade)
+  personnel        Personnel?       @relation(fields: [personnelId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status], map: "idx_coverage_request_org_status")
+  @@index([operationalEventId], map: "idx_coverage_request_event")
+  @@index([organizationId, requiredRole], map: "idx_coverage_request_org_role")
+  @@map("coverage_request")
+}
+
+model Assignment {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  operationalEventId String   @map("operational_event_id")
+  personnelId        String?  @map("personnel_id")
+  status             String
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationalEvent OperationalEvent @relation(fields: [operationalEventId], references: [id], onDelete: Cascade)
+  personnel        Personnel?       @relation(fields: [personnelId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status], map: "idx_assignment_org_status")
+  @@index([operationalEventId], map: "idx_assignment_event")
+  @@map("assignment")
+}
+
+
+model InboundWebhookRoute {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  provider       String
+  inboundAddress String   @map("inbound_address")
+  status         String   @default("ACTIVE")
+  description    String?
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, inboundAddress], map: "uq_inbound_webhook_route_provider_address")
+  @@index([organizationId, status], map: "idx_inbound_webhook_route_org_status")
+  @@map("inbound_webhook_route")
+}
+
+
+model ProviderConfiguration {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  provider       String
+  channel        String
+  status         String   @default("DISABLED")
+  displayName    String   @map("display_name")
+  config         Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider, channel], map: "uq_provider_configuration_org_provider_channel")
+  @@index([organizationId, status], map: "idx_provider_configuration_org_status")
+  @@map("provider_configuration")
+}
+
+model Communication {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  operationalEventId String?  @map("operational_event_id")
+  channel            String
+  direction          String
+  status             String
+  recipient          String
+  body               String?
+  providerMessageId  String?  @map("provider_message_id")
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationalEvent OperationalEvent? @relation(fields: [operationalEventId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status], map: "idx_communication_org_status")
+  @@index([operationalEventId], map: "idx_communication_event")
+  @@map("communication")
+}
+
+model Escalation {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  operationalEventId String   @map("operational_event_id")
+  level              Int
+  status             String
+  reason             String
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationalEvent OperationalEvent @relation(fields: [operationalEventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status], map: "idx_escalation_org_status")
+  @@index([operationalEventId], map: "idx_escalation_event")
+  @@map("escalation")
+}
+
+
+model Acknowledgment {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  operationalEventId String   @map("operational_event_id")
+  personnelId        String?  @map("personnel_id")
+  status             AcknowledgmentStatus
+  responseText       String?  @map("response_text")
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationalEvent OperationalEvent @relation(fields: [operationalEventId], references: [id], onDelete: Cascade)
+  personnel        Personnel?       @relation(fields: [personnelId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status], map: "idx_acknowledgment_org_status")
+  @@index([operationalEventId], map: "idx_acknowledgment_event")
+  @@map("acknowledgment")
+}
+
+model AuditEvent {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  eventId        String?  @map("event_id")
+  actorType      String   @map("actor_type")
+  actorId        String?  @map("actor_id")
+  action         String
+  previousState  String?  @map("previous_state")
+  newState       String?  @map("new_state")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        OperationalEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt], map: "idx_audit_event_org_created")
+  @@index([eventId], map: "idx_audit_event_event")
+  @@map("audit_event")
+}

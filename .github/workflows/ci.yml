@@ -1,0 +1,88 @@
+# CONTINUOUS INTEGRATION WORKFLOW
+# Purpose: Validates the monorepo before code can be merged or deployed.
+# Role: Enforces linting, type checking, testing, Prisma generation, and production build checks for the platform foundation.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  validate:
+    name: Validate Platform
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: metis
+          POSTGRES_PASSWORD: metis
+          POSTGRES_DB: metis_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://metis:metis@localhost:5432/metis_platform
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      CLERK_SECRET_KEY: test_clerk_secret
+      CLERK_PUBLISHABLE_KEY: test_clerk_publishable
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @metis/api prisma:generate
+
+      - name: Run database migrations
+        run: pnpm --filter @metis/api prisma:deploy
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

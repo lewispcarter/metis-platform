@@ -1,0 +1,1 @@
+V34 personnel counter hotfix: summary cards now derive Assigned/Available/Unavailable from actual event ownership, not stale activeEventId fields.
